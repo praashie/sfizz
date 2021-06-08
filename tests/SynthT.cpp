@@ -1828,3 +1828,27 @@ TEST_CASE("[Synth] Short empty files are turned into *silence")
     };
     REQUIRE(messageList == expected);
 }
+
+TEST_CASE("[Synth] On/Off by CC event, not affected by other groups")
+{
+    sfz::Synth synth;
+    sfz::AudioBuffer<float> buffer { 2, static_cast<unsigned>(synth.getSamplesPerBlock()) };
+
+    synth.loadSfzString(fs::current_path(), R"(
+        <group> group=1 <region> key=60 sample=*saw
+        <group> group=2 off_by=3 <region> hikey= lokey= key= on_locc60=64 on_hicc60=127 sample=*sine
+        <group> group=3 <region> hikey= lokey= key= on_locc60=0 on_hicc60=63 sample=*triangle transpose=12
+    )");
+    synth.cc(0, 60, 127);
+    synth.renderBlock(buffer);
+    REQUIRE( playingSamples(synth) == std::vector<std::string> { "*sine" });
+    synth.noteOn(0, 60, 85);
+    synth.renderBlock(buffer);
+    REQUIRE( playingSamples(synth) == std::vector<std::string> { "*sine", "*saw"});
+    synth.noteOff(10, 60, 85);
+    synth.renderBlock(buffer);
+    REQUIRE( playingSamples(synth) == std::vector<std::string> { "*sine" });
+    synth.cc(0, 60, 0);
+    synth.renderBlock(buffer);
+    REQUIRE( playingSamples(synth) == std::vector<std::string> { "*triangle" });
+}

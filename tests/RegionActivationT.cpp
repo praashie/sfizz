@@ -185,6 +185,26 @@ TEST_CASE("Region activation", "Region tests")
         layer.registerNoteOff(40, 0_norm, 0.5f);
         REQUIRE(!layer.isSwitchedOn());
     }
+    SECTION("Sequences: CC activation")
+    {
+        region.parseOpcode({ "seq_length", "3" });
+        region.parseOpcode({ "seq_position", "2" });
+        region.parseOpcode({ "on_locc60", "64" });
+        region.parseOpcode({ "on_hicc60", "127" });
+
+        sfz::Layer layer { region, midiState };
+        REQUIRE(!layer.isSwitchedOn());
+
+        layer.registerCC(60, 127_norm);
+        REQUIRE(!layer.isSwitchedOn());
+        layer.registerCC(60, 0_norm);
+        layer.registerCC(60, 127_norm);
+        REQUIRE(layer.isSwitchedOn());
+        layer.registerCC(60, 0_norm);
+        layer.registerCC(60, 127_norm);
+        REQUIRE(!layer.isSwitchedOn());
+        layer.registerCC(60, 0_norm);
+    }
 }
 
 TEST_CASE("[Keyswitches] Normal lastKeyswitch range")

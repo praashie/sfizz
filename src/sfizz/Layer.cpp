@@ -46,38 +46,52 @@ bool Layer::isSwitchedOn() const noexcept
     return keySwitched_ && previousKeySwitched_ && sequenceSwitched_ && pitchSwitched_ && bpmSwitched_ && aftertouchSwitched_ && ccSwitched_.all();
 }
 
+void Layer::walkSequence() noexcept
+{
+    sequenceSwitched_ =
+        ((sequenceCounter_++ % region_.sequenceLength) == region_.sequencePosition - 1); 
+}
+
+bool Layer::checkRandom(float randValue) const noexcept
+{
+    return region_.randRange.contains(randValue) || (randValue >= 1.0f && region_.randRange.isValid() && region_.randRange.getEnd() >= 1.0f);
+}
+
+bool Layer::checkNote(int noteNumber, float velocity) const noexcept
+{
+    return region_.keyRange.containsWithEnd(noteNumber) && region_.velocityRange.containsWithEnd(velocity);
+}
+
 bool Layer::registerNoteOn(int noteNumber, float velocity, float randValue) noexcept
 {
     ASSERT(velocity >= 0.0f && velocity <= 1.0f);
 
     const Region& region = region_;
 
-    const bool keyOk = region.keyRange.containsWithEnd(noteNumber);
-    if (keyOk) {
-        // Sequence activation
-        sequenceSwitched_ =
-            ((sequenceCounter_++ % region.sequenceLength) == region.sequencePosition - 1);
+    if (region.velocityOverride == VelocityOverride::previous)
+        velocity = midiState_.getVelocityOverride();
+
+    if ( !(region.triggerOnNote && checkNote(noteNumber, velocity) && checkRandom(randValue)) ) {
+        return false;
     }
 
     const bool polyAftertouchActive =
         region.polyAftertouchRange.containsWithEnd(midiState_.getPolyAftertouch(noteNumber));
 
-    if (!isSwitchedOn() || !polyAftertouchActive)
+    if (!polyAftertouchActive) {
         return false;
+    }
 
-    if (!region.triggerOnNote)
-        return false;
-
-    if (region.velocityOverride == VelocityOverride::previous)
-        velocity = midiState_.getVelocityOverride();
-
-    const bool velOk = region.velocityRange.containsWithEnd(velocity);
-    const bool randOk = region.randRange.contains(randValue) || (randValue >= 1.0f && region.randRange.isValid() && region.randRange.getEnd() >= 1.0f);
     const bool firstLegatoNote = (region.trigger == Trigger::first && midiState_.getActiveNotes() == 1);
     const bool attackTrigger = (region.trigger == Trigger::attack);
     const bool notFirstLegatoNote = (region.trigger == Trigger::legato && midiState_.getActiveNotes() > 1);
 
-    return keyOk && velOk && randOk && (attackTrigger || firstLegatoNote || notFirstLegatoNote);
+    if (attackTrigger || firstLegatoNote || notFirstLegatoNote) {
+        walkSequence();
+        return isSwitchedOn();
+    }
+
+    return false;
 }
 
 bool Layer::registerNoteOff(int noteNumber, float velocity, float randValue) noexcept
@@ -86,30 +100,28 @@ bool Layer::registerNoteOff(int noteNumber, float velocity, float randValue) noe
 
     const Region& region = region_;
 
+    if (region.velocityOverride == VelocityOverride::previous)
+        velocity = midiState_.getVelocityOverride();
+
+    if (!(region.triggerOnNote && checkNote(noteNumber, velocity) && checkRandom(randValue))) {
+        return false;
+    }
+
     const bool polyAftertouchActive =
         region.polyAftertouchRange.containsWithEnd(midiState_.getPolyAftertouch(noteNumber));
 
-    if (!isSwitchedOn() || !polyAftertouchActive)
-        return false;
-
-    if (!region.triggerOnNote)
-        return false;
-
     // Prerequisites
 
-    const bool keyOk = region.keyRange.containsWithEnd(noteNumber);
-    const bool velOk = region.velocityRange.containsWithEnd(velocity);
-    const bool randOk = region.randRange.contains(randValue) || (randValue >= 1.0f && region.randRange.isValid() && region.randRange.getEnd() >= 1.0f);
-
-    if (!(velOk && keyOk && randOk))
+    if (!polyAftertouchActive)
         return false;
 
     // Release logic
 
-    if (region.trigger == Trigger::release_key)
-        return true;
+    bool triggerOk = false;
 
-    if (region.trigger == Trigger::release) {
+    if (region.trigger == Trigger::release_key) {
+        triggerOk = true;
+    } else if (region.trigger == Trigger::release) {
         const bool sostenutoed = isNoteSostenutoed(noteNumber);
 
         if (sostenutoed && !sostenutoPressed_) {
@@ -122,14 +134,19 @@ bool Layer::registerNoteOff(int noteNumber, float velocity, float randValue) noe
             if (sustainPressed_)
                 delaySustainRelease(noteNumber, midiState_.getNoteVelocity(noteNumber));
             else
-                return true;
+                triggerOk = true;
         }
+    }
+
+    if (triggerOk) {
+        walkSequence();
+        return isSwitchedOn();
     }
 
     return false;
 }
 
-bool Layer::registerCC(int ccNumber, float ccValue) noexcept
+bool Layer::registerCC(int ccNumber, float ccValue, float randValue) noexcept
 {
     const Region& region = region_;
 
@@ -152,15 +169,14 @@ bool Layer::registerCC(int ccNumber, float ccValue) noexcept
     else
         ccSwitched_.set(ccNumber, false);
 
-    if (!isSwitchedOn())
-        return false;
-
     if (!region.triggerOnCC)
         return false;
 
     if (auto triggerRange = region.ccTriggers.get(ccNumber)) {
-        if (triggerRange->containsWithEnd(ccValue))
-            return true;
+        if (triggerRange->containsWithEnd(ccValue)) {
+            walkSequence();
+            return isSwitchedOn();
+        }
     }
 
     return false;

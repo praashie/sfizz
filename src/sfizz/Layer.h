@@ -55,6 +55,31 @@ public:
      * @return false
      */
     bool isSwitchedOn() const noexcept;
+
+    /**
+     * @brief Advance the internal round-robin sequence.
+     */
+    void walkSequence() noexcept;
+
+    /**
+     * @brief Check the given value against the random activation range.
+     *  
+     * @return true
+     * @return false
+     */
+    bool checkRandom(float randValue) const noexcept;
+
+    /**
+     * @brief Do the given note and velocity values match the layer's range?
+     *
+     * @param noteNumber
+     * @param velocity
+     *
+     * @return true
+     * @return false
+     */
+    bool checkNote(int noteNumber, float velocity) const noexcept;
+
     /**
      * @brief Register a new note on event. The region may be switched on or off using keys so
      * this function updates the keyswitches state.
@@ -88,7 +113,7 @@ public:
      * @return true if the region should trigger on this event
      * @return false
      */
-    bool registerCC(int ccNumber, float ccValue) noexcept;
+    bool registerCC(int ccNumber, float ccValue, float randValue = 0.0f) noexcept;
     /**
      * @brief Register a new pitch wheel event.
      *
